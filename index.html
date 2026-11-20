@@ -434,6 +434,13 @@
   .img-edit-preview img{width:100%; height:100%; object-fit:cover;}
   .img-edit-actions{display:flex; gap:8px; margin-bottom:8px;}
   .img-edit-actions .btn-secondary, .img-edit-actions .btn-danger-outline{flex:1; padding:10px 8px; font-size:13px; text-align:center;}
+
+  /* ---------- CATEGORY TABS ---------- */
+  .cat-tabs{display:flex; gap:8px; overflow-x:auto; padding:2px 2px 10px; margin:0 -2px; -webkit-overflow-scrolling:touch; scrollbar-width:none;}
+  .cat-tabs::-webkit-scrollbar{display:none;}
+  .cat-tab{flex:0 0 auto; padding:8px 14px; border-radius:100px; background:#fff; box-shadow:var(--shadow); font-size:13px; font-weight:700; color:var(--plum-soft); white-space:nowrap;}
+  .cat-tab.active{background:var(--plum); color:#fff;}
+  .cat-empty{grid-column:1/-1; text-align:center; color:var(--plum-soft); font-size:13px; padding:24px 0;}
 </style>
 </head>
 <body>
@@ -469,6 +476,7 @@
 
   <!-- SELL SCREEN -->
   <div class="screen" id="screen-sell">
+    <div class="cat-tabs" id="catTabs"></div>
     <div class="grid-toggle" id="gridToggle">
       <button data-cols="2" onclick="setGridCols(2)">⬜⬜</button>
       <button data-cols="3" onclick="setGridCols(3)">⬜⬜⬜</button>
@@ -722,6 +730,15 @@
     <input class="field-input" id="me_imgUrl" placeholder="หรือวางลิงก์รูป เช่น https://... หรือ images/mango.jpg" oninput="onMenuImgUrl()">
     <div class="field-label">ชื่อเมนู</div>
     <input class="field-input" id="me_name" placeholder="เช่น มะม่วงปั่น">
+    <div class="field-label">หมวดหมู่</div>
+    <select class="field-input" id="me_cat" style="margin-bottom:8px;">
+      <option value="coffee">☕ กาแฟ</option>
+      <option value="blend">🥤 ปั่น</option>
+      <option value="soda">🫧 โซดา</option>
+      <option value="tea">🍵 ชา</option>
+      <option value="milk">🥛 นมสด/โกโก้</option>
+      <option value="other">อื่นๆ</option>
+    </select>
     <div class="field-label">ราคา ไซส์ S / M / L (บาท)</div>
     <div style="display:flex; gap:8px;">
       <input class="field-input" id="me_priceS" type="number" inputmode="decimal" placeholder="S">
@@ -1166,6 +1183,31 @@ if(!load('sm_menu_batch_drinkshop_v1', false)){
   save('sm_menu_batch_drinkshop_v1', true);
 }
 
+/* ================= MENU CATEGORIES ================= */
+const CATS = [
+  {k:'coffee', label:'☕ กาแฟ'},
+  {k:'blend',  label:'🥤 ปั่น'},
+  {k:'soda',   label:'🫧 โซดา'},
+  {k:'tea',    label:'🍵 ชา'},
+  {k:'milk',   label:'🥛 นมสด/โกโก้'},
+  {k:'other',  label:'อื่นๆ'},
+];
+function guessCat(name){
+  name = name||'';
+  if(/เอสเพรสโซ่|คาปูชิโน่|มอคค่า|ลาเต้|อเมริกาโน่|กาแฟ/.test(name)) return 'coffee';
+  if(/ปั่น/.test(name)) return 'blend';
+  if(/โซดา|อัญชัน|น้ำส้ม/.test(name)) return 'soda';
+  if(/ชา/.test(name)) return 'tea';
+  if(/นม|โกโก้|โอวัลติน/.test(name)) return 'milk';
+  return 'other';
+}
+// give every existing menu item a category once (keeps anything the owner already set)
+(function(){
+  let changed = false;
+  menu.forEach(m=>{ if(!m.cat){ m.cat = guessCat(m.name); changed = true; } });
+  if(changed) save(KEYS.menu, menu);
+})();
+
 /* ================= LOGIN / SESSION ================= */
 let selectedStaffId = null;
 let pinBuf = '';
@@ -1265,6 +1307,7 @@ function switchTab(tab){
 let cart = [];
 let sizeCtx = null; // {menuId, size, qty}
 let gridCols = load('sm_gridCols', 2);
+let menuCatFilter = load('sm_menuCat', 'all');
 
 function setGridCols(n){
   gridCols = n;
@@ -1322,11 +1365,35 @@ function resizeImageFile(file, maxSize, quality){
   });
 }
 
+function setMenuCat(k){
+  menuCatFilter = k;
+  save('sm_menuCat', k);
+  renderMenuGrid();
+}
+function renderCatTabs(){
+  const box = document.getElementById('catTabs');
+  if(!box) return;
+  const present = new Set(menu.map(m=>m.cat||'other'));
+  if(menuCatFilter!=='all' && !present.has(menuCatFilter)) menuCatFilter = 'all';
+  const tabs = [{k:'all', label:'ทั้งหมด', n:menu.length}]
+    .concat(CATS.filter(c=>present.has(c.k)).map(c=>({k:c.k, label:c.label, n:menu.filter(m=>(m.cat||'other')===c.k).length})));
+  box.innerHTML = '';
+  tabs.forEach(t=>{
+    const b = document.createElement('button');
+    b.className = 'cat-tab' + (t.k===menuCatFilter?' active':'');
+    b.textContent = t.label + ' ' + t.n;
+    b.onclick = ()=> setMenuCat(t.k);
+    box.appendChild(b);
+  });
+}
 function renderMenuGrid(){
+  renderCatTabs();
   applyGridCols();
   const grid = document.getElementById('menuGrid');
   grid.innerHTML = '';
-  menu.forEach(m=>{
+  const shown = menu.filter(m=> menuCatFilter==='all' || (m.cat||'other')===menuCatFilter);
+  if(!shown.length){ grid.innerHTML = '<div class="cat-empty">ยังไม่มีเมนูในหมวดนี้</div>'; return; }
+  shown.forEach(m=>{
     const card = document.createElement('div');
     card.className = 'menu-card';
     const low = menuHasLowStock(m);
@@ -2521,6 +2588,7 @@ function openMenuEditor(id){
   const m = id ? menu.find(x=>x.id===id) : null;
   document.getElementById('menuEditTitle').innerHTML = (m?'แก้ไขเมนู':'เพิ่มเมนูใหม่') + ' <span class="close-x" onclick="closeModal(\'modalMenuEdit\')">✕</span>';
   document.getElementById('me_emoji').value = m?m.emoji:'🥤';
+  document.getElementById('me_cat').value = m ? (m.cat||guessCat(m.name)) : (menuCatFilter!=='all' ? menuCatFilter : 'other');
   menuEditImg = (m && m.img) ? m.img : '';
   document.getElementById('me_imgUrl').value = (menuEditImg && !menuEditImg.startsWith('data:')) ? menuEditImg : '';
   document.getElementById('me_emoji').oninput = renderMenuImgPreview;
@@ -2549,6 +2617,7 @@ function openMenuEditor(id){
 function saveMenuItem(){
   const name = document.getElementById('me_name').value.trim();
   const emoji = document.getElementById('me_emoji').value.trim() || '🥤';
+  const cat = document.getElementById('me_cat').value || 'other';
   const priceS = parseFloat(document.getElementById('me_priceS').value)||0;
   const priceM = parseFloat(document.getElementById('me_priceM').value)||0;
   const priceL = parseFloat(document.getElementById('me_priceL').value)||0;
@@ -2563,12 +2632,13 @@ function saveMenuItem(){
   });
   if(menuEditId){
     const m = menu.find(x=>x.id===menuEditId);
-    m.name=name; m.emoji=emoji; m.img=menuEditImg; m.priceS=priceS; m.priceM=priceM; m.priceL=priceL; m.recipe=recipe;
+    m.name=name; m.emoji=emoji; m.cat=cat; m.img=menuEditImg; m.priceS=priceS; m.priceM=priceM; m.priceL=priceL; m.recipe=recipe;
   } else {
-    menu.push({id:uid(), name, emoji, img:menuEditImg, priceS, priceM, priceL, recipe});
+    menu.push({id:uid(), name, emoji, cat, img:menuEditImg, priceS, priceM, priceL, recipe});
   }
   try{ save(KEYS.menu, menu); }
   catch(e){ showToast('พื้นที่เก็บข้อมูลเต็ม — ลองใช้ลิงก์รูปแทนการอัปโหลด'); return; }
+  if(menuCatFilter!=='all' && menuCatFilter!==cat){ menuCatFilter = cat; save('sm_menuCat', cat); }
   closeModal('modalMenuEdit');
   renderMenuGrid();
   showToast('บันทึกเมนูแล้ว');
@@ -2767,7 +2837,7 @@ const RESET_CATEGORIES = [
   {key:'benefits', label:'ประวัติเบิกสวัสดิการพนักงาน', keys:[KEYS.benefits]},
   {key:'ownerdraw', label:'ประวัติเงินที่เจ้าของร้านเก็บ', keys:[KEYS.ownerdraws]},
   {key:'worksettings', label:'ค่าตั้งเวลาทำงาน & OT', keys:[KEYS.worksettings]},
-  {key:'gridpref', label:'ค่าที่จำไว้ (จำนวนคอลัมน์เมนู)', keys:['sm_gridCols']},
+  {key:'gridpref', label:'ค่าที่จำไว้ (จำนวนคอลัมน์เมนู)', keys:['sm_gridCols','sm_menuCat']},
 ];
 function confirmResetAll(){
   if(!isOwner()){ showToast('เฉพาะเจ้าของร้านเท่านั้น'); return; }
