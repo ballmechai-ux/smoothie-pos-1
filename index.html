@@ -423,6 +423,17 @@
   .r-thankyou{text-align:center; font-size:12px; color:var(--plum-soft); margin-top:14px;}
   .receipt-actions{display:flex; gap:10px; margin-top:16px;}
 
+
+  /* ---------- MENU IMAGES ---------- */
+  .menu-card .emoji.has-img{width:100%; font-size:0; line-height:0;}
+  .menu-card .emoji.has-img img{width:100%; aspect-ratio:1/1; object-fit:cover; border-radius:12px; display:block; background:#f3eaf4;}
+  .menu-grid.cols-4 .emoji.has-img img{border-radius:9px;}
+  .title-img, .ci-img, .list-img{width:28px; height:28px; border-radius:8px; object-fit:cover; vertical-align:middle; margin-right:6px;}
+  .ci-img{width:24px; height:24px; border-radius:6px;}
+  .img-edit-preview{width:96px; height:96px; border-radius:16px; background:#f3eaf4; display:flex; align-items:center; justify-content:center; font-size:40px; overflow:hidden; margin-bottom:8px;}
+  .img-edit-preview img{width:100%; height:100%; object-fit:cover;}
+  .img-edit-actions{display:flex; gap:8px; margin-bottom:8px;}
+  .img-edit-actions .btn-secondary, .img-edit-actions .btn-danger-outline{flex:1; padding:10px 8px; font-size:13px; text-align:center;}
 </style>
 </head>
 <body>
@@ -701,6 +712,14 @@
     <h2 id="menuEditTitle">เพิ่มเมนูใหม่ <span class="close-x" onclick="closeModal('modalMenuEdit')">✕</span></h2>
     <div class="field-label">อีโมจิ/ไอคอน</div>
     <input class="field-input" id="me_emoji" placeholder="🥭" maxlength="4">
+    <div class="field-label">รูปเมนู (ไม่บังคับ — ถ้าไม่ใส่จะใช้อีโมจิ)</div>
+    <div class="img-edit-preview" id="me_imgPreview">🥤</div>
+    <div class="img-edit-actions">
+      <button type="button" class="btn-secondary" onclick="document.getElementById('me_imgFile').click()">📷 เลือกรูปจากเครื่อง</button>
+      <button type="button" class="btn-danger-outline" id="me_imgClear" onclick="clearMenuImg()">ลบรูป</button>
+    </div>
+    <input type="file" id="me_imgFile" accept="image/*" style="display:none" onchange="onMenuImgFile(event)">
+    <input class="field-input" id="me_imgUrl" placeholder="หรือวางลิงก์รูป เช่น https://... หรือ images/mango.jpg" oninput="onMenuImgUrl()">
     <div class="field-label">ชื่อเมนู</div>
     <input class="field-input" id="me_name" placeholder="เช่น มะม่วงปั่น">
     <div class="field-label">ราคา ไซส์ S / M / L (บาท)</div>
@@ -1260,6 +1279,49 @@ function applyGridCols(){
   });
 }
 
+
+/* ================= MENU IMAGE HELPERS ================= */
+function escapeAttr(str){ return escapeHtml(String(str==null?'':str)).replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+// emoji box: shows the image if the menu has one, falls back to emoji if the image fails to load
+function menuIconHtml(m){
+  const fb = m.emoji||'🥤';
+  if(m.img){
+    return `<div class="emoji has-img"><img src="${escapeAttr(m.img)}" alt="" loading="lazy" data-fb="${escapeAttr(fb)}" onerror="var p=this.parentNode;p.classList.remove('has-img');p.textContent=this.dataset.fb;"></div>`;
+  }
+  return `<div class="emoji">${escapeHtml(fb)}</div>`;
+}
+// small inline icon (title, cart, lists)
+function menuMiniIcon(m, cls){
+  const fb = m.emoji||'🥤';
+  if(m.img){
+    return `<img class="${cls}" src="${escapeAttr(m.img)}" alt="" data-fb="${escapeAttr(fb)}" onerror="this.outerHTML=this.dataset.fb+' ';">`;
+  }
+  return escapeHtml(fb)+' ';
+}
+// shrink a picked photo so it fits comfortably in localStorage (~10-20 KB each)
+function resizeImageFile(file, maxSize, quality){
+  return new Promise((resolve,reject)=>{
+    const fr = new FileReader();
+    fr.onerror = ()=>reject(new Error('read'));
+    fr.onload = ()=>{
+      const im = new Image();
+      im.onerror = ()=>reject(new Error('decode'));
+      im.onload = ()=>{
+        const side = Math.min(im.width, im.height);           // center-crop to square
+        const sx = (im.width-side)/2, sy = (im.height-side)/2;
+        const out = Math.min(maxSize, side);
+        const c = document.createElement('canvas'); c.width = out; c.height = out;
+        const ctx = c.getContext('2d');
+        ctx.fillStyle = '#fff'; ctx.fillRect(0,0,out,out);
+        ctx.drawImage(im, sx, sy, side, side, 0, 0, out, out);
+        resolve(c.toDataURL('image/jpeg', quality));
+      };
+      im.src = fr.result;
+    };
+    fr.readAsDataURL(file);
+  });
+}
+
 function renderMenuGrid(){
   applyGridCols();
   const grid = document.getElementById('menuGrid');
@@ -1269,7 +1331,7 @@ function renderMenuGrid(){
     card.className = 'menu-card';
     const low = menuHasLowStock(m);
     card.innerHTML = `${low?'<div class="low-badge">วัตถุดิบใกล้หมด</div>':''}
-      <div class="emoji">${m.emoji||'🥤'}</div>
+      ${menuIconHtml(m)}
       <div class="mname">${escapeHtml(m.name)}</div>
       <div class="mprice">${m.priceS}/${m.priceM}/${m.priceL} บาท</div>`;
     card.onclick = ()=> openSizeModal(m.id);
@@ -1291,7 +1353,7 @@ function openSizeModal(menuId){
 }
 function renderSizeModal(){
   const m = menu.find(x=>x.id===sizeCtx.menuId);
-  document.getElementById('sizeMenuName').textContent = m.emoji+' '+m.name;
+  document.getElementById('sizeMenuName').innerHTML = menuMiniIcon(m,'title-img') + escapeHtml(m.name);
   const row = document.getElementById('sizeRow');
   row.innerHTML = '';
   [['S',m.priceS],['M',m.priceM],['L',m.priceL]].forEach(([sz,price])=>{
@@ -1337,7 +1399,8 @@ function openCheckout(){
   cart.forEach((c,i)=>{
     const row = document.createElement('div');
     row.className = 'cart-item-row';
-    row.innerHTML = `<div><div class="ci-name">${c.emoji} ${escapeHtml(c.name)} (${c.size})</div><div class="ci-sub">${c.qty} x ${c.price} บาท</div></div>
+    const cm = menu.find(x=>x.id===c.menuId) || {emoji:c.emoji};
+    row.innerHTML = `<div><div class="ci-name">${menuMiniIcon(cm,'ci-img')}${escapeHtml(c.name)} (${c.size})</div><div class="ci-sub">${c.qty} x ${c.price} บาท</div></div>
       <div style="display:flex; align-items:center; gap:10px;"><b>${c.qty*c.price}</b><span class="ci-remove" onclick="removeCartItem(${i})">ลบ</span></div>`;
     list.appendChild(row);
   });
@@ -2367,7 +2430,7 @@ function openDrinkClaim(){
   menu.forEach(m=>{
     const card = document.createElement('div');
     card.className = 'menu-card';
-    card.innerHTML = `<div class="emoji">${m.emoji||'🥤'}</div><div class="mname">${escapeHtml(m.name)}</div><div class="mprice">ไซส์ M ฟรี</div>`;
+    card.innerHTML = `${menuIconHtml(m)}<div class="mname">${escapeHtml(m.name)}</div><div class="mprice">ไซส์ M ฟรี</div>`;
     card.onclick = ()=> claimDrink(m.id);
     grid.appendChild(card);
   });
@@ -2419,11 +2482,49 @@ function renderBenefitsTab(){
 
 /* ================= MENU EDITOR (settings) ================= */
 let menuEditId = null;
+let menuEditImg = '';
+function renderMenuImgPreview(){
+  const box = document.getElementById('me_imgPreview');
+  const emo = document.getElementById('me_emoji').value.trim() || '🥤';
+  box.innerHTML = '';
+  if(menuEditImg){
+    const im = document.createElement('img');
+    im.src = menuEditImg;
+    im.onerror = ()=>{ box.textContent = '⚠️'; };
+    box.appendChild(im);
+  } else {
+    box.textContent = emo;
+  }
+  document.getElementById('me_imgClear').style.display = menuEditImg ? 'block' : 'none';
+}
+function onMenuImgUrl(){
+  menuEditImg = document.getElementById('me_imgUrl').value.trim();
+  renderMenuImgPreview();
+}
+async function onMenuImgFile(evt){
+  const f = evt.target.files && evt.target.files[0];
+  evt.target.value = '';
+  if(!f) return;
+  try{
+    menuEditImg = await resizeImageFile(f, 320, 0.8);
+    document.getElementById('me_imgUrl').value = '';
+    renderMenuImgPreview();
+  }catch(e){ showToast('เปิดรูปนี้ไม่ได้ ลองรูปอื่น'); }
+}
+function clearMenuImg(){
+  menuEditImg = '';
+  document.getElementById('me_imgUrl').value = '';
+  renderMenuImgPreview();
+}
 function openMenuEditor(id){
   menuEditId = id;
   const m = id ? menu.find(x=>x.id===id) : null;
   document.getElementById('menuEditTitle').innerHTML = (m?'แก้ไขเมนู':'เพิ่มเมนูใหม่') + ' <span class="close-x" onclick="closeModal(\'modalMenuEdit\')">✕</span>';
   document.getElementById('me_emoji').value = m?m.emoji:'🥤';
+  menuEditImg = (m && m.img) ? m.img : '';
+  document.getElementById('me_imgUrl').value = (menuEditImg && !menuEditImg.startsWith('data:')) ? menuEditImg : '';
+  document.getElementById('me_emoji').oninput = renderMenuImgPreview;
+  renderMenuImgPreview();
   document.getElementById('me_name').value = m?m.name:'';
   document.getElementById('me_priceS').value = m?m.priceS:'';
   document.getElementById('me_priceM').value = m?m.priceM:'';
@@ -2462,11 +2563,12 @@ function saveMenuItem(){
   });
   if(menuEditId){
     const m = menu.find(x=>x.id===menuEditId);
-    m.name=name; m.emoji=emoji; m.priceS=priceS; m.priceM=priceM; m.priceL=priceL; m.recipe=recipe;
+    m.name=name; m.emoji=emoji; m.img=menuEditImg; m.priceS=priceS; m.priceM=priceM; m.priceL=priceL; m.recipe=recipe;
   } else {
-    menu.push({id:uid(), name, emoji, priceS, priceM, priceL, recipe});
+    menu.push({id:uid(), name, emoji, img:menuEditImg, priceS, priceM, priceL, recipe});
   }
-  save(KEYS.menu, menu);
+  try{ save(KEYS.menu, menu); }
+  catch(e){ showToast('พื้นที่เก็บข้อมูลเต็ม — ลองใช้ลิงก์รูปแทนการอัปโหลด'); return; }
   closeModal('modalMenuEdit');
   renderMenuGrid();
   showToast('บันทึกเมนูแล้ว');
@@ -2485,7 +2587,7 @@ function openMenuList(){
   menu.forEach(m=>{
     const row = document.createElement('div');
     row.className = 'settings-item';
-    row.innerHTML = `<span>${m.emoji} ${escapeHtml(m.name)}</span><span class="arrow">›</span>`;
+    row.innerHTML = `<span>${menuMiniIcon(m,'list-img')}${escapeHtml(m.name)}</span><span class="arrow">›</span>`;
     row.onclick = ()=>{ closeModal('modalMenuList'); openMenuEditor(m.id); };
     list.appendChild(row);
   });
