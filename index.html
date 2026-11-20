@@ -441,6 +441,11 @@
   .cat-tab{flex:0 0 auto; padding:8px 14px; border-radius:100px; background:#fff; box-shadow:var(--shadow); font-size:13px; font-weight:700; color:var(--plum-soft); white-space:nowrap;}
   .cat-tab.active{background:var(--plum); color:#fff;}
   .cat-empty{grid-column:1/-1; text-align:center; color:var(--plum-soft); font-size:13px; padding:24px 0;}
+
+  .cup-vis{display:flex; align-items:center; justify-content:center; font-size:28px; line-height:1;}
+  .price-pair{display:flex; gap:8px;}
+  .price-pair > div{flex:1;}
+  .price-pair .sub-label{font-size:11px; font-weight:700; color:var(--plum-soft); margin:0 0 4px 2px;}
 </style>
 </head>
 <body>
@@ -739,13 +744,12 @@
       <option value="milk">🥛 นมสด/โกโก้</option>
       <option value="other">อื่นๆ</option>
     </select>
-    <div class="field-label">ราคา ไซส์ S / M / L (บาท)</div>
-    <div style="display:flex; gap:8px;">
-      <input class="field-input" id="me_priceS" type="number" inputmode="decimal" placeholder="S">
-      <input class="field-input" id="me_priceM" type="number" inputmode="decimal" placeholder="M">
-      <input class="field-input" id="me_priceL" type="number" inputmode="decimal" placeholder="L">
+    <div class="field-label">ราคา (บาท) — เว้นว่างถ้าไม่มีแบบนั้น</div>
+    <div class="price-pair">
+      <div><div class="sub-label">🧊 เย็น</div><input class="field-input" id="me_priceS" type="number" inputmode="decimal" placeholder="ราคาเย็น"></div>
+      <div><div class="sub-label">🥤 ปั่น</div><input class="field-input" id="me_priceM" type="number" inputmode="decimal" placeholder="ราคาปั่น"></div>
     </div>
-    <div class="field-label">สูตร: หักสต๊อกวัตถุดิบต่อแก้ว (ไม่บังคับ)</div>
+    <div class="field-label">สูตร: หักสต๊อกวัตถุดิบต่อแก้ว แยกเย็น / ปั่น (ไม่บังคับ)</div>
     <div id="me_recipe"></div>
     <div style="height:14px;"></div>
     <button class="btn-primary" onclick="saveMenuItem()">บันทึกเมนู</button>
@@ -1386,6 +1390,19 @@ function renderCatTabs(){
     box.appendChild(b);
   });
 }
+function sizeLabel(sz){ return ({S:'เย็น', M:'ปั่น'})[sz] || sz; }
+function priceText(m){
+  const a = [];
+  if(m.priceS>0) a.push('เย็น '+m.priceS);
+  if(m.priceM>0) a.push('ปั่น '+m.priceM);
+  return a.join(' · ') + ' บาท';
+}
+function availableSizes(m){
+  const a = [];
+  if(m.priceS>0) a.push('S');
+  if(m.priceM>0) a.push('M');
+  return a.length ? a : ['S','M'];
+}
 function renderMenuGrid(){
   renderCatTabs();
   applyGridCols();
@@ -1400,7 +1417,7 @@ function renderMenuGrid(){
     card.innerHTML = `${low?'<div class="low-badge">วัตถุดิบใกล้หมด</div>':''}
       ${menuIconHtml(m)}
       <div class="mname">${escapeHtml(m.name)}</div>
-      <div class="mprice">${m.priceS}/${m.priceM}/${m.priceL} บาท</div>`;
+      <div class="mprice">${priceText(m)}</div>`;
     card.onclick = ()=> openSizeModal(m.id);
     grid.appendChild(card);
   });
@@ -1414,7 +1431,9 @@ function menuHasLowStock(m){
   return false;
 }
 function openSizeModal(menuId){
-  sizeCtx = {menuId, size:'M', qty:1};
+  const mm = menu.find(x=>x.id===menuId);
+  const av = availableSizes(mm);
+  sizeCtx = {menuId, size:(mm.cat==='blend' && av.includes('M')) ? 'M' : av[0], qty:1};
   renderSizeModal();
   showModal('modalSize');
 }
@@ -1423,10 +1442,11 @@ function renderSizeModal(){
   document.getElementById('sizeMenuName').innerHTML = menuMiniIcon(m,'title-img') + escapeHtml(m.name);
   const row = document.getElementById('sizeRow');
   row.innerHTML = '';
-  [['S',m.priceS],['M',m.priceM],['L',m.priceL]].forEach(([sz,price])=>{
+  if(!availableSizes(m).includes(sizeCtx.size)) sizeCtx.size = availableSizes(m)[0];
+  availableSizes(m).map(sz=>[sz, sz==='S'?m.priceS:m.priceM]).forEach(([sz,price])=>{
     const div = document.createElement('div');
     div.className = 'size-opt' + (sz===sizeCtx.size?' selected':'');
-    div.innerHTML = `<div class="cup-vis">${cupSvg(sz)}</div><div class="slabel">${sz}</div><div class="sprice">${price} บาท</div>`;
+    div.innerHTML = `<div class="cup-vis">${sz==='S'?'🧊':'🥤'}</div><div class="slabel">${sizeLabel(sz)}</div><div class="sprice">${price} บาท</div>`;
     div.onclick = ()=>{ sizeCtx.size = sz; renderSizeModal(); };
     row.appendChild(div);
   });
@@ -1446,11 +1466,11 @@ function changeQty(d){
 }
 function addToCart(){
   const m = menu.find(x=>x.id===sizeCtx.menuId);
-  const priceMap = {S:m.priceS, M:m.priceM, L:m.priceL};
+  const priceMap = {S:m.priceS, M:m.priceM};
   cart.push({menuId:m.id, name:m.name, emoji:m.emoji, size:sizeCtx.size, price:priceMap[sizeCtx.size], qty:sizeCtx.qty, recipe:m.recipe});
   closeModal('modalSize');
   updateCartBar();
-  showToast('เพิ่ม '+m.name+' ('+sizeCtx.size+') ลงตะกร้าแล้ว');
+  showToast('เพิ่ม '+m.name+' ('+sizeLabel(sizeCtx.size)+') ลงตะกร้าแล้ว');
 }
 function updateCartBar(){
   const count = cart.reduce((a,c)=>a+c.qty,0);
@@ -1467,7 +1487,7 @@ function openCheckout(){
     const row = document.createElement('div');
     row.className = 'cart-item-row';
     const cm = menu.find(x=>x.id===c.menuId) || {emoji:c.emoji};
-    row.innerHTML = `<div><div class="ci-name">${menuMiniIcon(cm,'ci-img')}${escapeHtml(c.name)} (${c.size})</div><div class="ci-sub">${c.qty} x ${c.price} บาท</div></div>
+    row.innerHTML = `<div><div class="ci-name">${menuMiniIcon(cm,'ci-img')}${escapeHtml(c.name)} (${sizeLabel(c.size)})</div><div class="ci-sub">${c.qty} x ${c.price} บาท</div></div>
       <div style="display:flex; align-items:center; gap:10px;"><b>${c.qty*c.price}</b><span class="ci-remove" onclick="removeCartItem(${i})">ลบ</span></div>`;
     list.appendChild(row);
   });
@@ -1537,7 +1557,7 @@ function openReceipt(sale){
   const timeStr = dt.toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit'});
   let itemsHtml = '';
   sale.items.forEach(i=>{
-    itemsHtml += `<div class="receipt-row"><span class="r-item-name">${escapeHtml(i.menuName)} (${i.size})</span><span>${i.qty*i.price}</span></div>
+    itemsHtml += `<div class="receipt-row"><span class="r-item-name">${escapeHtml(i.menuName)} (${sizeLabel(i.size)})</span><span>${i.qty*i.price}</span></div>
       <div class="receipt-row r-sub"><span>${i.qty} x ${i.price} บาท</span></div>`;
   });
   const cashLines = sale.payment==='เงินสด' ? `
@@ -1719,7 +1739,7 @@ function renderReport(){
     const row = document.createElement('div');
     row.className = 'exp-row';
     row.style.cursor = 'pointer';
-    const itemsTxt = s.items.map(i=>`${i.menuName}(${i.size})x${i.qty}`).join(', ');
+    const itemsTxt = s.items.map(i=>`${i.menuName}(${sizeLabel(i.size)})x${i.qty}`).join(', ');
     row.innerHTML = `<div><div class="ex-desc">#${String(s.billNo||'').padStart(4,'0')} ${itemsTxt}</div><div class="ex-meta">${s.staffName} · ${s.payment} · ${new Date(s.datetime).toLocaleString('th-TH',{hour:'2-digit',minute:'2-digit',day:'2-digit',month:'2-digit'})}</div></div>
       <div style="color:var(--mint-dark); font-weight:700;">+${s.total}</div>`;
     row.onclick = ()=> openReceipt(s);
@@ -2497,7 +2517,7 @@ function openDrinkClaim(){
   menu.forEach(m=>{
     const card = document.createElement('div');
     card.className = 'menu-card';
-    card.innerHTML = `${menuIconHtml(m)}<div class="mname">${escapeHtml(m.name)}</div><div class="mprice">ไซส์ M ฟรี</div>`;
+    card.innerHTML = `${menuIconHtml(m)}<div class="mname">${escapeHtml(m.name)}</div><div class="mprice">ฟรี 1 แก้ว</div>`;
     card.onclick = ()=> claimDrink(m.id);
     grid.appendChild(card);
   });
@@ -2505,9 +2525,10 @@ function openDrinkClaim(){
 }
 function claimDrink(menuId){
   const m = menu.find(x=>x.id===menuId);
+  const claimSize = (m.priceM>0) ? 'M' : 'S';
   if(m.recipe){
     for(const ingId in m.recipe){
-      const use = m.recipe[ingId]['M'] || 0;
+      const use = m.recipe[ingId][claimSize] || 0;
       const ing = stock.find(s=>s.id===ingId);
       if(ing) ing.qty = Math.max(0, +(ing.qty-use).toFixed(2));
     }
@@ -2594,9 +2615,8 @@ function openMenuEditor(id){
   document.getElementById('me_emoji').oninput = renderMenuImgPreview;
   renderMenuImgPreview();
   document.getElementById('me_name').value = m?m.name:'';
-  document.getElementById('me_priceS').value = m?m.priceS:'';
-  document.getElementById('me_priceM').value = m?m.priceM:'';
-  document.getElementById('me_priceL').value = m?m.priceL:'';
+  document.getElementById('me_priceS').value = (m && m.priceS>0)?m.priceS:'';
+  document.getElementById('me_priceM').value = (m && m.priceM>0)?m.priceM:'';
   document.getElementById('me_deleteBtn').style.display = m?'block':'none';
   const recipeDiv = document.getElementById('me_recipe');
   recipeDiv.innerHTML = '';
@@ -2606,9 +2626,8 @@ function openMenuEditor(id){
     row.style.marginBottom='10px';
     row.innerHTML = `<div style="font-size:12px; font-weight:700; margin-bottom:4px;">${escapeHtml(s.name)} (${escapeHtml(s.unit)})</div>
       <div style="display:flex; gap:6px;">
-        <input class="field-input recipe-s" data-ing="${s.id}" data-size="S" type="number" step="any" inputmode="decimal" placeholder="S" value="${cur.S||''}">
-        <input class="field-input recipe-m" data-ing="${s.id}" data-size="M" type="number" step="any" inputmode="decimal" placeholder="M" value="${cur.M||''}">
-        <input class="field-input recipe-l" data-ing="${s.id}" data-size="L" type="number" step="any" inputmode="decimal" placeholder="L" value="${cur.L||''}">
+        <input class="field-input recipe-s" data-ing="${s.id}" data-size="S" type="number" step="any" inputmode="decimal" placeholder="เย็น" value="${cur.S||''}">
+        <input class="field-input recipe-m" data-ing="${s.id}" data-size="M" type="number" step="any" inputmode="decimal" placeholder="ปั่น" value="${cur.M||''}">
       </div>`;
     recipeDiv.appendChild(row);
   });
@@ -2620,15 +2639,15 @@ function saveMenuItem(){
   const cat = document.getElementById('me_cat').value || 'other';
   const priceS = parseFloat(document.getElementById('me_priceS').value)||0;
   const priceM = parseFloat(document.getElementById('me_priceM').value)||0;
-  const priceL = parseFloat(document.getElementById('me_priceL').value)||0;
+  const priceL = priceM;   // เลิกใช้ไซส์ L — เก็บเท่าราคาปั่นไว้เพื่อให้ข้อมูลเก่าอ่านได้
+  if(!(priceS>0) && !(priceM>0)){ showToast('ใส่ราคาอย่างน้อย 1 แบบ (เย็น หรือ ปั่น)'); return; }
   if(!name){ showToast('กรุณาใส่ชื่อเมนู'); return; }
   const recipe = {};
   document.querySelectorAll('#me_recipe .recipe-s').forEach(inp=>{
     const ingId = inp.dataset.ing;
     const sVal = parseFloat(inp.value)||0;
     const mVal = parseFloat(document.querySelector(`.recipe-m[data-ing="${ingId}"]`).value)||0;
-    const lVal = parseFloat(document.querySelector(`.recipe-l[data-ing="${ingId}"]`).value)||0;
-    if(sVal||mVal||lVal) recipe[ingId] = {S:sVal,M:mVal,L:lVal};
+    if(sVal||mVal) recipe[ingId] = {S:sVal,M:mVal,L:mVal};
   });
   if(menuEditId){
     const m = menu.find(x=>x.id===menuEditId);
